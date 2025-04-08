@@ -1,0 +1,10 @@
+# .gitignore
+
+# folders
+data/
+
+# python cache files
+__pycache__/
+
+# jupyter notebook checkpoints
+.ipynb_checkpoints/
