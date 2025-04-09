@@ -2,6 +2,7 @@
 
 # folders
 data/
+functional_analysis/
 
 # python cache files
 __pycache__/

@@ -20,11 +20,20 @@ def classify_query(user_query):
 
 # test
 
-query1 = "How expressed is gene X in condition Y?"
-query2 = "How expressed is TGF-beta in the control group?"
+# # query1 = "How expressed is gene X in condition Y?" # PASS
+# # query2 = "How expressed is TGF-beta in the control group?" # PASS
+# # query3 = "Is CD8 downregulated in the knockdowns?" # FAIL
+# # query4 = "To what extent is CD8 downregulated in the knockdowns?" # FAIL
+# query5 = "To what extent is gene X downregulated in condition Y?" # PASS
 
-answer1 = parse_query(query1)
-answer2 = parse_query(query2)
+# # answer1 = classify_query(query1)
+# # answer2 = classify_query(query2)
+# # answer3 = classify_query(query3)
+# # answer4 = classify_query(query4)
+# answer5 = classify_query(query5)
 
-print(f"Query: {query1} => Classified Intent: {answer1}") # OK
-print(f"Query: {query2} => Classified Intent: {answer2}") # OK
+# # print(f"Query: {query1} => Classified Intent: {answer1}")
+# # print(f"Query: {query2} => Classified Intent: {answer2}") 
+# # print(f"Query: {query3} => Classified Intent: {answer3}")
+# # print(f"Query: {query4} => Classified Intent: {answer4}")
+# print(f"Query: {query5} => Classified Intent: {answer5}")

@@ -1,7 +1,24 @@
+import sys
+import os
+
+# Add the parent directory to sys.path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from loaders.bulk_rna_seq_loader import (
+    load_metadata
+    # load_counts_matrix,
+    # load_dge_results,
+    # load_enrichr_results,
+    # load_pca,
+    # load_mds
+)
+from ner.attributes import create_metadata_ner
 import pandas as pd
 import numpy as np
 from fuzzywuzzy import fuzz
 import re
+
+### 1. METADATA QUERIES ###
 
 def find_conditions_from_query(user_input, metadata_df, threshold=85):
     matched_conditions = []
@@ -15,58 +32,89 @@ def find_conditions_from_query(user_input, metadata_df, threshold=85):
                     matched_conditions.append((col, val))
     return matched_conditions
 
-def get_most_expressed_gene(user_input, project_config):
-    # Load files
-    count_matrix_path = project_config["count_matrix"]
-    metadata_path = project_config["metadata"]
+def count_samples_by_group(project_path, condition): 
+    metadata = load_metadata(f"{project_path}metadata.csv")
+    counts = metadata[condition].value_counts().to_dict()
+    return counts
 
-    counts_df = pd.read_csv(count_matrix_path, sep="\t")
-    metadata_df = pd.read_csv(metadata_path)
+ans= count_samples_by_group("/Users/camilla.callierotti/omics-agent/data/bulk_rna_seq/glio/", "Type")
+print(ans)
+# ### 2. COUNT MATRIX QUERIES ###
 
-    gene_id_col = "gene_name" if "gene_name" in counts_df.columns else counts_df.columns[0]
-    sample_cols = counts_df.columns[2:]
-
-    # Match conditions
-    matched_conditions = find_conditions_from_query(user_input, metadata_df)
-
-    if not matched_conditions:
-        return "❌ No condition in your query matched the metadata."
-
-    matching_samples = []
-    mask = pd.Series(True, index=metadata_df.index)
-    for col, val in matched_conditions: # filter metadata_df for samples that match the condition in query
-        mask &= metadata_df[col] == val
+# def get_most_expressed_gene(project_path, condition):
+#     counts = load_counts_matrix(project_path)
+#     metadata = load_metadata(project_path)
     
-    matched = metadata_df[mask]
-    samples = matched["GF_ID"].tolist()
-    matching_samples = [s for s in samples if s in sample_cols]
-
-    if not matching_samples:
-        return f"⚠️ No samples found for matched conditions: {matched_conditions}."
-
-    # Subset and calculate mean expression
-    counts_subset = counts_df[[gene_id_col] + matching_samples]
-    counts_subset["mean_expr"] = counts_subset[matching_samples].mean(axis=1)
-
-    # Sort by mean expression
-    top_genes = counts_subset[[gene_id_col, "mean_expr"]].sort_values("mean_expr", ascending=False).head(10)
-
-    # Return formatted result
-    result = "\n".join(f"{row[gene_id_col]}: {row['mean_expr']:.2f}" for _, row in top_genes.iterrows())
-    return f"🧬 Top expressed genes in {', '.join([v for _, v in matched_conditions])}:\n\n{result}"
+#     samples = metadata[metadata['condition'] == condition]['sample_id']
+#     condition_counts = counts[samples].mean(axis=1)
+#     most_expr_gene = condition_counts.idxmax()
+    
+#     return f"The most expressed gene in {condition} is {most_expr_gene} with average count {condition_counts[most_expr_gene]:.2f}."
 
 
-if __name__ == "__main__":
-    # Example test
-    project_config = {
-        "count_matrix": "data/fantom6/count_matrix.tsv",
-        "metadata": "data/fantom6/metadata.csv"
-    }
+# def get_gene_expression(project_path, gene_name, condition):
+#     counts = load_counts_matrix(project_path)
+#     metadata = load_metadata(project_path)
 
-    # Try any of these:
-    user_query = "Which genes are most expressed in Gapmer 2?"
-    # user_query = "Top genes in untreated and treated"
-    # user_query = "Most expressed in ctrl and gapmerr2"
+#     samples = metadata[metadata['condition'] == condition]['sample_id']
+    
+#     if gene_name not in counts.index:
+#         return f"Gene {gene_name} not found in the dataset."
+    
+#     expr_values = counts.loc[gene_name, samples]
+#     return expr_values.to_dict()
 
-    result = get_most_expressed_gene(user_query, project_config)
-    print(result)
+
+# def get_deg_list(project_path, comparison_label="Gapmer2_vs_control"):
+#     de_results = load_de_results(project_path)
+    
+#     if comparison_label not in de_results:
+#         return f"No results found for comparison {comparison_label}."
+    
+#     df = de_results[comparison_label]
+#     degs = df[df["padj"] < 0.05].sort_values("log2FoldChange", ascending=False)
+#     return degs[["log2FoldChange", "padj"]].head(20).to_dict(orient="index")
+
+# ### 3. ENRICHR RESULTS QUERIES ###
+
+# def get_significant_genes(project_path, condition):
+#     enrichr = load_enrichr_results(project_path)
+    
+#     if condition not in enrichr:
+#         return f"No enrichR results found for condition {condition}."
+    
+#     sig_genes = enrichr[condition][enrichr[condition]['Adjusted P-value'] < 0.05]['Gene']
+#     return sig_genes.tolist()
+
+# ### 4. PLOT QUERIES ###
+
+# def plot_pca(project_path):
+#     pca_df = load_pca_data(project_path)
+#     fig, ax = plt.subplots()
+#     sns.scatterplot(data=pca_df, x="PC1", y="PC2", hue="condition", ax=ax)
+#     ax.set_title("PCA of Samples")
+#     return fig
+
+
+# def plot_mds(project_path):
+#     mds_df = load_mds_data(project_path)
+#     fig, ax = plt.subplots()
+#     sns.scatterplot(data=mds_df, x="Dim1", y="Dim2", hue="condition", ax=ax)
+#     ax.set_title("MDS Plot of Samples")
+#     return fig
+
+
+# # if __name__ == "__main__":
+# #     # Example test
+# #     project_config = {
+# #         "count_matrix": "data/fantom6/count_matrix.tsv",
+# #         "metadata": "data/fantom6/metadata.csv"
+# #     }
+
+# #     # Try any of these:
+# #     user_query = "Which genes are most expressed in Gapmer 2?"
+# #     # user_query = "Top genes in untreated and treated"
+# #     # user_query = "Most expressed in ctrl and gapmerr2"
+
+# #     result = get_most_expressed_gene(user_query, project_config)
+# #     print(result)

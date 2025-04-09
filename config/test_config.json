@@ -1,0 +1,7 @@
+{
+    "proj_path": "/Users/camilla.callierotti/omics-agent/data/bulk_rna_seq/glio/",
+    "omics_domain": "bulk_rna_seq",
+    "user_input": "how many replicates are there in the differentiated condition?",
+    "intent": "sample_count_by_group",
+    "condition": "Type"
+}
