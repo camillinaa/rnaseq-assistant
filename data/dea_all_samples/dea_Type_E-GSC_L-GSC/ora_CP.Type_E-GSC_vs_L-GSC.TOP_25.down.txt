@@ -1,2 +1,0 @@
-Pathway	gene.ratio	p.value	p.adjust	minus.log.padj	collection
-HALLMARK_KRAS_SIGNALING_DN	0.0099009900990099	0.0276409414340447	0.0276409414340447	1.55844716923388	h.all.v2024.1.Hs.symbols
