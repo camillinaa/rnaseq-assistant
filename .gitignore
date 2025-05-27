@@ -1,14 +1,1 @@
-# .gitignore
-
-# folders
-data/
-functional_analysis/
-
-# python cache files
-__pycache__/
-
-# jupyter notebook checkpoints
-.ipynb_checkpoints/
-
-# macOS
-.DS_Store
+.env
