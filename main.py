@@ -25,15 +25,30 @@ def get_available_subsets_and_comparisons():
                                 subset_comparisons[subset].append(comparison_name)
     return subset_comparisons
 
-def load_analysis_table(selected_subset, selected_comparison, selected_analysis):
+def load_analysis_table(selected_analysis, selected_subset, selected_comparison):
     """
     Load the table to query based on the analysis, subset, and comparison selected by the user on streamlit app.
     """
-    subset = selected_subset.lower().replace(' ', '_')
-    comparison = selected_comparison.lower().replace(' ', '_')
+    
+    if selected_analysis in ["counts matrix", "PCA", "MDS"]:
+        selected_subset = None
+        selected_comparison = None
+    else:
+        subset = selected_subset.lower().replace(' ', '_')
+        comparison = selected_comparison.lower().replace(' ', '_')
+    
     root = "data"
 
-    if selected_analysis == "deseq2":
+    if selected_analysis == "counts matrix":
+        file_path = os.path.join(root, "normalization/cpm.txt")
+        df = pd.read_csv(file_path, sep="\t")
+    elif selected_analysis == "PCA":    
+        file_path = os.path.join(root, "dim_reduction/PCA_scores.txt")
+        df = pd.read_csv(file_path, sep="\t")
+    elif selected_analysis == "MDS":
+        file_path = os.path.join(root, "dim_reduction/MDS_scores.txt")
+        df = pd.read_csv(file_path, sep="\t")
+    elif selected_analysis == "deseq2":
         file_path = os.path.join(root, f"dea_{subset}", f"dea_{comparison}", f"deseq2_toptable.{comparison}.txt")
         with open(file_path, 'r') as file:
             df = pd.read_csv(file, sep="\t")
@@ -44,7 +59,7 @@ def load_analysis_table(selected_subset, selected_comparison, selected_analysis)
     elif selected_analysis == "gsea":
         file_path = os.path.join(root, f"dea_{subset}", f"dea_{comparison}", f"gsea.{comparison}.xlsx")
         df = pd.read_csv(file_path)
+    else:
+        raise ValueError(f"Unknown analysis type: {selected_analysis}")
     
     return df, file_path
-
-# df = load_analysis_table("ns", "flattening yes no", "deseq2")
