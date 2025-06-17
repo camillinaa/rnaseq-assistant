@@ -1,8 +1,7 @@
 import streamlit as st
 import pandas as pd
 from main import get_available_subsets_and_comparisons, load_analysis_table
-from handler import run_counts_query, run_pca_mds_query, run_deseq2_query
-
+from handler import run_counts_query, run_pca_mds_query, run_deseq2_query, run_gsea_ora_query
 
 # Get selections
 subset_comparisons = get_available_subsets_and_comparisons()
@@ -47,10 +46,12 @@ user_query = st.text_input("Ask a question about the analysis table")
 if st.button("Run Query"):
     if selected_analysis == "counts matrix":
         result = run_counts_query(user_query, filepath)
-    if selected_analysis == "PCA" or selected_analysis == "MDS":
+    elif selected_analysis == "PCA" or selected_analysis == "MDS":
         result = run_pca_mds_query(user_query, filepath)
     elif selected_analysis == "deseq2":
         result = run_deseq2_query(user_query, filepath)
+    elif selected_analysis == "ora" or selected_analysis == "gsea":
+        result = run_gsea_ora_query(user_query, filepath)
     else:
         st.error("This analysis type is not supported for querying yet.")
     st.write("Query Result:")

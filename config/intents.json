@@ -1,23 +1,24 @@
 {
     "count_matrix": [
-      "Which gene is most expressed in condition X?",
-      "What is the expression value of gene X in condition Y?",
-      "How much is gene ABC expressed in control samples?",
-      "Can you show me the expression of TP53 in treated samples?",
-      "Give me the expression count for gene X across all samples.",
-      "What are the top 10 most expressed genes in cancer samples?",
-      "Is gene Y highly expressed in the knockout group?",
-      "Compare expression levels of gene Z between conditions A and B.",
+      "Which gene has the highest counts in condition X?",
+      "What are the counts of gene X in treatment Y?",
+      "What are the counts of gene ABC in control samples?",
+      "Can you show me the counts of TP53 in treated samples?",
+      "Give me the raw counts for gene X across all samples.",
+      "Does gene Y have high counts in the knockout group?",
+      "Compare the counts of gene Z between conditions A and B.",
       "What is the raw count for gene MYC in sample S1?",
-      "Which genes have highest mean expression in the dataset?",
-      "Is CD8 downregulated in the knockdowns?",
-      "Is gene Y upregulated in the treated samples?"
+      "Which genes have highest mean counts in the dataset?",
+      "What genes have lowest median counts?"
     ],
     "deseq2": [
+      "Give me the 5 most significant genes",
       "Show me the list of differentially expressed genes between condition X and Y.",
       "What are the DEGs between treatment and control?",
       "Which genes are significantly upregulated in treated samples?",
       "Give me a list of downregulated genes in cancer vs normal.",
+      "What genes have the lowest LFC?",
+      "What is the padj value of gene ABC?",
       "List DEGs with adjusted p-value < 0.05.",
       "Are there any differentially expressed genes between these two conditions?",
       "Can you show the DE results comparing knockout and wild-type?",
@@ -47,7 +48,12 @@
       "Is there a PCA plot showing sample clustering?",
       "Give me a PCA where samples are grouped by condition.",
       "Plot PC1 vs PC2 for all samples.",
-      "Display PCA with condition labels."
+      "Plot PC1 vs PC2 for all samples.",
+      "Display PCA with condition labels.",
+      "Can you show PCA with samples colored by treatment?",
+      "Plot PC12 vs PC13 colored by patient?",
+      "What does the PCA plot look like for this dataset?",
+      "Can you run PCA on the count matrix?"
     ],
     "enrichr": [
       "What pathways are enriched in the cancer condition?",

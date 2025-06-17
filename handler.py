@@ -43,10 +43,25 @@ def run_counts_query(user_query, filepath):
                 for col in df.columns if col not in ["gene_name", "Geneid", "Chr", "start_pos", "end_pos", "Strand", "Length"]
             ]
         )
-        
+
+    # count_df = pd.read_csv("data/normalization/cpm.txt", sep="\t")
+    # meta_df = pd.read_csv("data/metadata.csv", sep=",")
+    # # Melt the count matrix to long format (Gene x Sample -> expression value)
+    # long_counts = count_df.melt(
+    #     id_vars=["gene_name", "Geneid", "Chr", "Start", "End", "Strand", "Length"],
+    #     var_name="Sample",
+    #     value_name="Expression"
+    # )
+
+    # meta_df.columns = meta_df.iloc[0]  # Set the first row as the header
+    # meta_df = meta_df[1:]  # Remove the first row from the data
+    # meta = pai.DataFrame(meta_df, name="metadata")  # convert to pai dataframe    
     df = pai.load("rnaseq/counts")
 
     response = df.chat(user_query)
+    
+    # View code generated and executed locally by llm
+    # print(response.last_code_executed)
 
     return response
 
@@ -56,28 +71,27 @@ def run_pca_mds_query(user_query, filepath):
 
     pai_df = pai.DataFrame(df, name="pca_scores")
     
-    # if not os.path.exists("datasets/rnaseq/pca/"):
-    #     # Create the semantic layer
-    #     pca = pai.create(
-    #         path="rnaseq/pca",
-    #         df=pai_df,
-    #         description="PCA scores for RNA-seq data",
-    #         columns=[
-    #             {"name": "samples", "type": "string", "description": "name of the sample"},
-    #             {"name": "PC1", "type": "float", "description": "first principal component score"},
-    #             {"name": "PC2", "type": "float", "description": "second principal component score"},
-    #             {"name": "PC3", "type": "float", "description": "third principal component score"}
-    #         ]
-    #     )
-        
-    # df = pai.load("rnaseq/pca")
+    if not os.path.exists("datasets/rnaseq/pca/"):
+        # Create the semantic layer
+        pca = pai.create(
+            path="rnaseq/pca",
+            df=pai_df,
+            description="PCA scores for RNA-seq data",
+            columns=[
+                {"name": "samples", "type": "string", "description": "name of the sample"},
+                {"name": "PC1", "type": "float", "description": "first principal component score"},
+                {"name": "PC2", "type": "float", "description": "second principal component score"},
+                {"name": "PC3", "type": "float", "description": "third principal component score"}
+            ]
+        )
+
+    df = pai.load("rnaseq/pca")
     
     response = pai_df.chat(user_query)
     
     return response
 
 def run_deseq2_query(user_query, filepath):
-
 
     if not os.path.exists("datasets/rnaseq/deseq2/"):
         
@@ -98,10 +112,10 @@ def run_deseq2_query(user_query, filepath):
                 {"name": "baseMean", "type": "float", "description": "mean of normalized counts for all samples"},
                 {"name": "log2FoldChange", "type": "float", "description": "log2 fold change between two conditions"},
                 {"name": "pvalue", "type": "float", "description": "standard error of the log2 fold change"},
-                {"name": "padj", "type": "float", "description": "adjusted p-value for multiple testing"},
+                {"name": "padj", "type": "float", "description": "adjusted p-value for multiple testing, consider this column when asked about significance, consider significant p<0.05; also known as FDR"},
                 {"name": "Significance", "type": "string", "description": "direction of differential expression"},
                 {"name": "Geneid", "type": "string", "description": "Ensembl gene ID"},
-                {"name": "Chr", "type": "string", "description": "chromosome"},
+                {"name": "Chr", "type": "string", "description": "chromosome number, if semicolon is present in the string only consider the part before the semicolon"}, 
                 {"name": "start_pos", "type": "integer", "description": "start position"},
                 {"name": "end_pos", "type": "integer", "description": "end position"},
                 {"name": "Strand", "type": "string", "description": "strand orientation"},
@@ -115,5 +129,15 @@ def run_deseq2_query(user_query, filepath):
 
     return response
 
-# View code generated and executed locally by llm
-# print(response.last_code_executed)
+def run_gsea_ora_query(user_query, filepath):
+
+    df = pd.concat(pd.read_excel(filepath, sheet_name=None), ignore_index=True)
+    df.columns = df.columns.str.replace('.', '_', regex=False)
+    print(df.columns)
+    
+    pai_df = pai.DataFrame(df, name="gsea_table") # convert to pai dataframe
+
+    response = pai_df.chat(user_query)
+
+    return response
+
