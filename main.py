@@ -1,5 +1,5 @@
 import os
-import subprocess
+from db_loader import RNASeqDBLoader
 from chatbot import Chatbot
 
 
@@ -7,7 +7,7 @@ from chatbot import Chatbot
 db_path = "rnaseq.db"
 if not os.path.exists(db_path):
     print("Database not found. Loading database...")
-    subprocess.call("db_loader.py", shell=True)
+    RNASeqDBLoader(db_path=db_path, base_dir="data").upload_files_to_db()
     print("Database loaded successfully.")
 else:
     print("Database already loaded.")

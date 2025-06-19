@@ -21,10 +21,11 @@ class Chatbot:
 
     def _system_message(self):
         return """
-        Given an input question, create a syntactically correct {dialect} query to
-        run to help find the answer. Unless the user specifies in his question a
-        specific number of examples they wish to obtain, always limit your query to
-        at most {top_k} results. You can order the results by a relevant column to
+        Given an input question on bulk RNA sequencing results from a research 
+        scientist, create a syntactically correct {dialect} query to run to help 
+        find the answer. Unless the user specifies in his question a specific 
+        number of examples they wish to obtain, always limit your query to at 
+        most {top_k} results. You can order the results by a relevant column to
         return the most interesting examples in the database.
 
         Never query for all the columns from a specific table, only ask for a the
@@ -33,7 +34,16 @@ class Chatbot:
         the schema description of the database. If a column contains a dot (.) 
         in the name (e.g. "p.adjust"), wrap the column name in quotations (").
         
-        If asked about counts or raw counts, use the table named normalization.
+        If asked about counts or raw counts, use the table named normalization. If
+        asked about columns which are not in the normalization table, try to find 
+        them in the table named "metadata" and join it with the normalization table 
+        to retrieve the relevant information.
+        
+        If asked about differential expression, and no sample subset is specified,
+        use the table containing "all_samples" in the name.
+        
+        If asked about significance, don't use the pvalue column, but rather the 
+        p.adjust column.
 
         Pay attention to use only the column names that you can see in the schema
         description. Be careful to not query for columns that do not exist. Also,
@@ -76,7 +86,8 @@ class Chatbot:
         """Answer question using retrieved information as context."""
         prompt = (
             "Given the following user question, corresponding SQL query, "
-            "and SQL result, answer the user question.\n\n"
+            "and SQL result, answer the user question, how you would answer "
+            "it to a research scientist. Do not make any reference to the SQL queries.\n\n"
             f'Question: {state["question"]}\n'
             f'SQL Query: {state["query"]}\n'
             f'SQL Result: {state["result"]}'
@@ -85,7 +96,24 @@ class Chatbot:
         return {"answer": response.content}
 
     def run_query(self, question: str):
-        """Run the query graph with the given question."""
-        for step in self.graph.stream({"question": question}, stream_mode="updates"):
-            print(step)
-        return step["answer"]
+        """
+        Execute the complete query pipeline and return just the answer.
+        
+        Args:
+            question: User's question about RNA-seq data
+            
+        Returns:
+            String containing the final answer (not wrapped in dictionary)
+        """
+        try:
+            # Execute the graph and collect all steps
+            steps = list(self.graph.stream({"question": question}, stream_mode="updates"))
+            # Find the step that contains the answer
+            for step in reversed(steps):  # Start from the end to find the final answer
+                if 'generate_answer' in step and 'answer' in step['generate_answer']:
+                    return step['generate_answer']['answer']
+            # Fallback if no answer found in expected format
+            return "I encountered an issue processing your question. Please try rephrasing it."    
+        except Exception as e:
+            return f"An error occurred while processing your question: {e}"
+
