@@ -77,6 +77,15 @@ class RNASeqDBLoader:
         self.files["metadata"] = metadata_path if os.path.exists(metadata_path) else None
         self.files["correlation"] = correlation_path if os.path.exists(correlation_path) else None
 
+    def _get_friendly_gsea_name(self, sheet_name):
+    # Mapping raw GSEA sheet names to descriptive names
+        gsea_name_map = {
+            "c2.all.v2024.1.Hs.symbols": "curated_gene_sets",
+            "c5.all.v2024.1.Hs.symbols": "go_gene_sets",
+            "h.all.v2024.1.Hs.symbols": "hallmark_gene_sets"
+        }
+        return gsea_name_map.get(sheet_name, self._sanitize_table_name(sheet_name))
+
     def _read_and_upload(self, path, table_name):
             """
             Read a data file and upload it to the database.
@@ -91,14 +100,23 @@ class RNASeqDBLoader:
                 # Handle different file formats
                 if path.endswith((".txt", ".csv")):
                     df = pd.read_csv(path, sep=None, engine='python')  # Auto-detect separator
+                    clean_table_name = self._sanitize_table_name(table_name)
+                    print(f"Uploading {clean_table_name} from {path} ({len(df)} rows)")
+                    df.to_sql(clean_table_name, self.engine, if_exists="replace", index=False)
                 elif path.endswith(".xlsx"):
-                    df = pd.read_excel(path)
+                    xls = pd.ExcelFile(path)
+                    for sheet_name in xls.sheet_names:
+                        df = xls.parse(sheet_name)
+                        if "gsea" in path.lower() or "ora" in path.lower():
+                            sheet_suffix = self._get_friendly_gsea_name(sheet_name)
+                        else:
+                            sheet_suffix = self._sanitize_table_name(sheet_name)
+                        full_table_name = f"{self._sanitize_table_name(table_name)}_{sheet_suffix}"
+                        print(f"Uploading {full_table_name} from sheet '{sheet_name}' in {path} ({len(df)} rows)")
+                        df.to_sql(full_table_name, self.engine, if_exists="replace", index=False)
                 else:
                     print(f"Skipping unsupported file format: {path}")
                     return
-                clean_table_name = self._sanitize_table_name(table_name)
-                print(f"Uploading {clean_table_name} from {path} ({len(df)} rows)")
-                df.to_sql(clean_table_name, self.engine, if_exists="replace", index=False)
             except Exception as e:
                 print(f"Error processing {path}: {e}")
 
@@ -137,3 +155,11 @@ class RNASeqDBLoader:
         except Exception as e:
             print(f"Could not query correlation table: {e}")
             return None
+    
+    def run_all(self):
+        self._discover_files()
+        self.upload_files_to_db()
+
+if __name__ == "__main__":
+    loader = RNASeqDBLoader()
+    loader.run_all()

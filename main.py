@@ -212,7 +212,7 @@ def main():
                 top_k=10,
             )
             
-            results = bot.run_query(user_query)
+            results = bot.chat(user_query)
             print(f"\n📝 Response: {results['answer']}")
             
             if results.get("plot_available"):

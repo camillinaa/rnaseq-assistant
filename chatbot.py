@@ -1,12 +1,14 @@
 import os
 import re
+import yaml
 from dotenv import load_dotenv
-import plotly.express as px
 import pandas as pd
 from langchain_community.utilities import SQLDatabase
 from langchain_mistralai import ChatMistralAI
 from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
+import plotly.express as px # for llm-generated code execution
+import numpy as np # for llm-generated code execution
 
 
 class RNASeqChatbot:
@@ -20,6 +22,14 @@ class RNASeqChatbot:
         self.llm = ChatMistralAI(api_key=api_key, model=model_name)
         self.db = SQLDatabase.from_uri(db_uri)
         self.table_info = self.db.get_table_info()
+        
+        # Load plot instructions from YAML file
+        plot_instructions_path = os.getenv("CONFIG_YAML_PATH", "plotting_instructions.yaml")  
+        if os.path.exists(plot_instructions_path):
+            with open(plot_instructions_path, "r") as f:
+                self.plot_instructions = yaml.safe_load(f)
+        else:
+            self.plot_instructions = {}
 
         # SQL generation prompt
         self.sql_prompt = PromptTemplate(
@@ -34,13 +44,14 @@ class RNASeqChatbot:
             Unless the user specifies in his question a specific 
             number of examples they wish to obtain, always limit your query to at 
             most {top_k} results. You can order the results by a relevant column to
-            return the most interesting examples in the database.
+            return the most interesting examples in the database. Always remove rows with
+            null values.
 
             Never query for all the columns from a specific table, only ask for a the
             few relevant columns given the question. You may have to join tables to retrieve
             the relevant information. You can also use the `table_info` variable to see 
             the schema description of the database. If a column contains a dot (.) 
-            in the name (e.g. "p.adjust"), wrap the column name in quotations (").
+            in the name, wrap the column name in quotations (").
             
             If asked about counts or raw counts, use the table named normalization. If
             asked about columns which are not in the normalization table, try to find 
@@ -50,8 +61,10 @@ class RNASeqChatbot:
             If asked about differential expression, and no sample subset is specified,
             use the table containing "all_samples" in the name.
             
-            If asked about significance, don't use the pvalue column, but rather the 
-            p.adjust column.
+            When responding to questions about statistical significance, do not refer 
+            to the raw pvalue column. Instead, use the adjusted p-value, which accounts 
+            for multiple testing correction. The adjusted p-value column may be named 
+            either padj or p.adjust, depending on the specific results table.
             
             If asked for information about specific samples, use the table metadata
             if necessary joining it with any other you deem necessary to retrieve
@@ -74,66 +87,92 @@ class RNASeqChatbot:
             """
         )
         
-        # Plot detection prompt
-        self.plot_detection_prompt = PromptTemplate(
-            input_variables=["question", "data"],
-            template=
-            """
-            You are an AI assistant to research scientists on bulk RNA-seq analyses.
-            Based on the user question asked and the retreived data, would a plot 
-            aid in understanding? Answer only "yes" or "no", nothing more.
+        # # Plot detection prompt
+        # self.plot_detection_prompt = PromptTemplate(
+        #     input_variables=["question", "data"],
+        #     template=
+        #     """
+        #     You are an AI assistant to research scientists on bulk RNA-seq analyses.
+        #     Based on the user question asked and the retreived data, would a plot 
+        #     aid in understanding? Answer only "yes" or "no", nothing more.
             
-            These sort of questions are likely to require a plot:
-            1. Comparisons (e.g. "Is gene TGFB expressed more in treated cells than in 
-            untreated?") -> Box Plot
-            2. Aggregations and Summarizations (e.g., "What is the average expression per 
-            condition?") → Box Plot
-            3. Correlation (e.g. Is there correlation between log2FC and gene length?") 
-            or PCA -> Scatter Plot
-            4. Correlation between samples (e.g. Show me the correlation between samples.")
-            -> Heatmap
-            5. Differential expression (e.g. What are the 10 most significantly differentially 
-            expressed genes in treated vs untreated samples?") -> Volcano Plot
+        #     These sort of questions are likely to require a plot:
+        #     1. Comparisons (e.g. "Is gene TGFB expressed more in treated cells than in 
+        #     untreated?") -> Box Plot
+        #     2. Aggregations and Summarizations (e.g., "What is the average expression per 
+        #     condition?") → Box Plot
+        #     3. Correlation (e.g. Is there correlation between log2FC and gene length?") 
+        #     or PCA -> Scatter Plot
+        #     4. Correlation between samples (e.g. Show me the correlation between samples.")
+        #     -> Heatmap
+        #     5. Differential expression (e.g. What are the 10 most significantly differentially 
+        #     expressed genes in treated vs untreated samples?") -> Volcano Plot
 
-            User question: {question}
-            Retrieved data: {data}            
-            """
-        )
+        #     User question: {question}
+        #     Retrieved data: {data}            
+        #     """
+        # )
         
         # Plotly code generation prompt
-        self.plotly_prompt = PromptTemplate(
-            input_variables=["question", "data"],
+        self.plot_type_prompt = PromptTemplate(
+            input_variables=["question", "sql_query", "data", "columns"],
             template=
             """
             You are an AI assistant to research scientists that recommends appropriate 
             data visualizations for bulk RNA-seq data analysis results. Based on the 
-            user's question, SQL query, and query results, understand the most suitable 
-            type of graph or chart to visualize the data. 
+            user's question "{question}", SQL query {sql_query}, and query results {data}, 
+            understand the most suitable type of graph or chart to visualize the data. 
             
-            Give your response in the format of python code to create the appropriate 
-            plotly figure. Provide only the code and nothing more. In the Python code, 
-            assume the SQL query result is stored in a DataFrame called data, not df.
-            Do not include import plotly.express as px nor fig.show() in the code. Give
-            the plot a meaningful title based on the question asked.
-            If no visualization is appropriate, respond with "no visualization".
-
-            Available chart types and their use cases:
-            1. Volcano Plot: For visualizing differential expression results, showing 
-            fold change vs. significance.
-            2. Scatter Plot: For visualizing relationships between two continuous variables,
+            Available plot types and their use cases:
+            1. Scatter: For visualizing relationships between two continuous variables,
             such as PCA scores or gene expression levels.
-            3. Heatmap: For visualizing correlation matrices or expression patterns across
+            2. Bar: For comparing counts or averages across categories
+            3. Line: For showing trends over time or linear variables, such as
+            expression changes across different time points or continuous conditions.
+            4. Heatmap: For visualizing correlation matrices or expression patterns across
             multiple samples or genes.
-            4. Box Plot: For visualizing the distribution of a continuous variable across
+            5. Box Plot: For visualizing the distribution of a continuous variable across
             different categories, such as expression levels across sample groups.
-            5. Line Chart: For showing trends over time or ordered categories, such as
-            expression changes across different time points or conditions.
+            6. Volcano Plot: For visualizing differential expression results, showing 
+            fold change vs. significance.
             
-            User question: {question}
-            Retrieved data: {data}
+            Respond only with the most appropriate plot type out of the available plot types
+            above, and nothing else.
+            Do not respond with any other type of plot or chart, and do not add anything
+            else to the response. If the question does not match any of the above plot types,
+            respond with "no visualization".
             """
         )
         
+        
+        # Plotly code generation prompt
+        self.plotly_prompt = PromptTemplate(
+            input_variables=["question", "sql_query", "data", "columns", "plot_instructions", "plot_type"],
+            template=
+            """
+            You are an AI assistant to research scientists that produces appropriate 
+            data visualizations for bulk RNA-seq data analysis results. Based on the 
+            user's question "{question}", SQL query {sql_query}, and query results {data}, 
+            produce a {plot_type} plot to visualize the data. 
+            
+            Use these detailed instructions for the selected plot type: {plot_instructions}.
+            
+            Give your response in the form of valid Python code that creates the appropriate 
+            Plotly figure using plotly.express (aliased as px). The input data is provided as 
+            a pandas DataFrame named data. Do not use df or any other variable name.
+            You must only pass existing column names to the x and y arguments in the plotly 
+            figure. Never pass an expression (e.g., np.log10(...)) as a string to x or y. If 
+            a new column is needed, compute it first using NumPy (aliased as np), then pass 
+            that new column name to the plot.
+            All new columns must be added to data before the figure is created.
+            Do not import any libraries. Do not include fig.show(). Use only px and np. Use 
+            the exact column names provided in: {columns}. Title the plot meaningfully based 
+            on the question: {question}. Only return code—do not include any explanations or 
+            comments.
+            """
+        )
+            
+    
         # Response generation prompt
         self.response_prompt = PromptTemplate(
             input_variables=["question", "data"],
@@ -150,7 +189,7 @@ class RNASeqChatbot:
         
         # Create chains
         self.sql_chain = LLMChain(llm=self.llm, prompt=self.sql_prompt)
-        self.plot_detection_chain = LLMChain(llm=self.llm, prompt=self.plot_detection_prompt)
+        self.plot_type_chain = LLMChain(llm=self.llm, prompt=self.plot_type_prompt)
         self.plotly_chain = LLMChain(llm=self.llm, prompt=self.plotly_prompt)
         self.response_chain = LLMChain(llm=self.llm, prompt=self.response_prompt)
     
@@ -163,24 +202,30 @@ class RNASeqChatbot:
         except Exception as e:
             return f"Error: {str(e)}"
     
-    def is_plot_query(self, user_query, data):
-        """Determine if query is asking for a plot"""
-        response = self.plot_detection_chain.invoke({
+    def plot_type(self, user_query, sql_query, data):
+        """Determine what plot to generate, if any"""
+        response = self.plot_type_chain.invoke({
             "question": user_query,
-            "data": data
+            "sql_query": sql_query,
+            "data": data,
+            "columns": data.columns
         })
         print(f"is_plot_query result: {response.get('text', '')}")  
-        return "yes" in response.get("text", "").lower() # outputs a boolean
+        return response.get("text", "").lower() 
     
-    def generate_plot(self, user_query, data):
+    def generate_plot(self, user_query, data, sql_query, plot_type, plot_instructions):
         """Generate and execute plotly code"""
         plotly_code = self.plotly_chain.invoke({
             "question": user_query,
-            "data": data
+            "data": data,
+            "sql_query": sql_query,
+            "columns": data.columns,
+            "plot_type": plot_type,
+            "plot_instructions": plot_instructions["plot_type"]
         })
         
         # Execute the generated plotly code
-        exec_globals = {"px": px, "data": data, "pd": pd}
+        exec_globals = {"px": px, "np": np, "data": data, "pd": pd}
         try:
             print(f"Generated plotly code before manipulation: {plotly_code.get('text', '')}")
             code = plotly_code.get("text", "")
@@ -227,32 +272,10 @@ class RNASeqChatbot:
         })
         print(f"Response: {response.get('text', '')}")
         
-        # Check if plot is requested
-        if self.is_plot_query(user_query, data):
-            self.generate_plot(user_query, data)
+        # Check if plot is required
+        plot_type = self.plot_type(user_query, sql_query.get("text"), data)
+        if plot_type != "no visualization":
+            self.generate_plot(user_query, data, sql_query, plot_type, self.plot_instructions)
         
         return response
 
-# Usage example
-if __name__ == "__main__":
-    # Initialize environment variables and database
-    load_dotenv() 
-    if not os.getenv("MISTRAL_API_KEY"):
-        raise ValueError("Please set your Mistral API key in the .env file.")
-    
-    # Initialize chatbot
-    chatbot = RNASeqChatbot(
-        api_key=os.getenv("MISTRAL_API_KEY"),
-        db_uri="sqlite:///rnaseq.db"
-    )
-    
-    # Chat loop
-    while True:
-        user_input = input("Ask about RNA-seq data (or 'quit' to exit): ")
-        if user_input.lower() == 'quit':
-            break
-        
-        try:
-            chatbot.chat(user_input)
-        except Exception as e:
-            print(f"Error: {e}")
