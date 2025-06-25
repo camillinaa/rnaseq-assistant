@@ -1,87 +1,86 @@
-plots:
-    - type: scatter
-        instructions: >
-            Create a DataFrame with gene-level statistics such as 'log2FoldChange' 
-            and 'padj'. 
-            Use `px.scatter` to create a scatter plot:
-            x-axis:'log2FoldChange'
-            y-axis: other variable of interest specified by the user 
-            Color by a categorical variable such as condition 
-            Include hover data with 'gene_name', 'log2FoldChange', and 
-            other relevant columns. 
-            Set axis labels accordingly. 
-            Use `log_y=True` if visualizing count-based metrics like baseMean.
+scatter:
+    instructions: |
+        Create a DataFrame with gene-level statistics such as 'log2FoldChange' 
+        and 'padj'. 
+        Use `px.scatter` to create a scatter plot:
+        x-axis:'log2FoldChange'
+        y-axis: other variable of interest specified by the user 
+        Color by a categorical variable such as condition 
+        Include hover data with 'gene_name', 'log2FoldChange', and 
+        other relevant columns. 
+        Set axis labels accordingly. 
+        Use `log_y=True` if visualizing count-based metrics like baseMean.
 
-    - type: bar
-        instructions: >
-            Create a DataFrame summarizing gene expression levels or differential 
-            expression statistics for a subset of top genes (e.g., top 20 DEGs by 
-            adjusted p-value). 
-            Use `px.bar`.
-            X: 'gene_name'
-            Y: 'log2FoldChange' or normalized expression 
-            Color bars by condition or direction of fold change (e.g., upregulated vs 
-            downregulated). 
-            Flip x-axis if needed with `orientation='h'`. 
-            Sort bars by value. 
-            Add hover data including 'padj' and base expression.
+bar:
+    instructions: |
+        Create a DataFrame summarizing gene expression levels or differential 
+        expression statistics for a subset of top genes (e.g., top 20 DEGs by 
+        adjusted p-value). 
+        Use `px.bar`.
+        X: 'gene_name'
+        Y: 'log2FoldChange' or normalized expression 
+        Color bars by condition or direction of fold change (e.g., upregulated vs 
+        downregulated). 
+        Flip x-axis if needed with `orientation='h'`. 
+        Sort bars by value. 
+        Add hover data including 'padj' and base expression.
 
-    - type: line
-        instructions: >
-            Create a DataFrame of gene expression across multiple samples or time points. 
-            Group by condition or replicate and compute mean expression per group. 
-            Use `px.line`.
-            X: sample/time point labels 
-            Y: expression value. 
-            'color': differentiate genes or conditions. 
-            Add hover data with sample metadata and gene_name. 
-            Set axis labels explicitly.
+line:
+    instructions: |
+        Create a DataFrame of gene expression across multiple samples or time points. 
+        Group by condition or replicate and compute mean expression per group. 
+        Use `px.line`.
+        X: sample/time point labels 
+        Y: expression value. 
+        'color': differentiate genes or conditions. 
+        Add hover data with sample metadata and gene_name. 
+        Set axis labels explicitly.
 
-    - type: heatmap
-        instructions: >
-            Prepare a matrix of normalized gene expression values (e.g., log-transformed 
-            counts) with genes as rows and samples as columns. 
-            Use `px.imshow` or `go.Heatmap` to create the heatmap.
-            If using `px.imshow`, pass the expression matrix with appropriate labels for 
-            x (samples) and y (genes). 
-            If using `go.Heatmap`, configure `z`, `x`, and `y` explicitly. 
-            Optionally cluster genes and/or samples beforehand using 
-            hierarchical clustering. 
-            Use a diverging colormap (e.g., RdBu) for fold 
-            changes or Z-scores. 
-            Annotate sample columns with condition or batch info if available.
+heatmap:
+    instructions: |
+        Prepare a matrix of normalized gene expression values (e.g., log-transformed 
+        counts) with genes as rows and samples as columns. 
+        Use `px.imshow` or `go.Heatmap` to create the heatmap.
+        If using `px.imshow`, pass the expression matrix with appropriate labels for 
+        x (samples) and y (genes). 
+        If using `go.Heatmap`, configure `z`, `x`, and `y` explicitly. 
+        Optionally cluster genes and/or samples beforehand using 
+        hierarchical clustering. 
+        Use a diverging colormap (e.g., RdBu) for fold 
+        changes or Z-scores. 
+        Annotate sample columns with condition or batch info if available.
 
-    - type: boxplot
-        instructions: >
-            Create a DataFrame to contain normalized expression values for selected 
-            genes across samples, along with metadata columns such as condition. 
-            Use `px.box`
-            X: 'condition'
-            Y: normalized expression (e.g., for a single gene). 
-            Color by condition or batch if needed. 
-            Use `points='all'` to overlay individual data points. 
-            Add hover data for sample ID and expression value. 
+boxplot:
+    instructions: |
+        Create a DataFrame to contain normalized expression values for selected 
+        genes across samples, along with metadata columns such as condition. 
+        Use `px.box`
+        X: 'condition'
+        Y: normalized expression (e.g., for a single gene). 
+        Color by condition or batch if needed. 
+        Use `points='all'` to overlay individual data points. 
+        Add hover data for sample ID and expression value. 
 
-    - type: volcano
-        instructions: >
-            Before plotting, create a new column called "minus_log10_padj" 
-            which is -np.log10(data['padj']). Then, define a new "Significance" 
-            column with the following rules:
-            If padj > 0.05 or abs(log2FoldChange) < 1 → "Non Significant"
-            If padj ≤ 0.05 and log2FoldChange > 1 → "Significant Up"
-            If padj ≤ 0.05 and log2FoldChange < -1 → "Significant Down"
-            Then, create a scatter plot using px.scatter:
-            x should be 'log2FoldChange'
-            y should be 'minus_log10_padj'
-            Color points based on the "Significance" column with the following mapping:
-            "Non Significant" = grey
-            "Significant Up" = blue
-            "Significant Down" = red
-            Add hover data showing 'gene_name', 'log2FoldChange', 'padj'
-            Add a horizontal line at -log10(0.05)
-            Add vertical lines at log2FoldChange = -1 and log2FoldChange = 1
-            Customize the legend to show only: "Non Significant", "Significant Up", and 
-            "Significant Down"
-            The axes should be:
-            x-axis: "Log2 Fold Change"
-            y-axis: "-Log10 Adjusted P-Value"
+volcano:
+    instructions: |
+        Before plotting, create a new column called "minus_log10_padj" 
+        which is -np.log10(data['padj']). Then, define a new "Significance" 
+        column with the following rules:
+        If padj > 0.05 or abs(log2FoldChange) < 1 → "Non Significant"
+        If padj ≤ 0.05 and log2FoldChange > 1 → "Significant Up"
+        If padj ≤ 0.05 and log2FoldChange < -1 → "Significant Down"
+        Then, create a scatter plot using px.scatter:
+        x should be 'log2FoldChange'
+        y should be 'minus_log10_padj'
+        Color points based on the "Significance" column with the following mapping:
+        "Non Significant" = grey
+        "Significant Up" = blue
+        "Significant Down" = red
+        Add hover data showing 'gene_name', 'log2FoldChange', 'padj'
+        Add a horizontal line at -log10(0.05)
+        Add vertical lines at log2FoldChange = -1 and log2FoldChange = 1
+        Customize the legend to show only: "Non Significant", "Significant Up", and 
+        "Significant Down"
+        The axes should be:
+        x-axis: "Log2 Fold Change"
+        y-axis: "-Log10 Adjusted P-Value"

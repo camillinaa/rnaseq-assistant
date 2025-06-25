@@ -16,7 +16,7 @@ def demonstrate_plotting_capabilities():
     bot = RNASeqChatbot(
         model_name="mistral-large-latest", 
         api_key=os.getenv("MISTRAL_API_KEY"), 
-        db_uri="sqlite:///rnaseq.db", 
+        db_uri = os.getenv("DB_URI"),
         dialect="sqlite", 
         top_k=10,
     )
