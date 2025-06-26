@@ -3,10 +3,12 @@ import re
 import yaml
 from dotenv import load_dotenv
 from langchain_community.utilities import SQLDatabase
-from langchain_mistralai import ChatMistralAI
 from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
 from langchain.output_parsers import StructuredOutputParser, ResponseSchema
+from langchain_community.llms import HuggingFacePipeline
+from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
+import torch
 # for llm-generated code execution:
 import pandas as pd
 import plotly.express as px 
@@ -14,14 +16,26 @@ import numpy as np
 
 
 class RNASeqChatbot:
-    def __init__(self, model_name, api_key, db_uri, dialect, top_k):
-        self.model_name = model_name
-        self.api_key = api_key
+    def __init__(self, model_name, db_uri, dialect, top_k, device=None, max_length=2048):
         self.db_uri = db_uri
         self.dialect = dialect
-        self.top_k=top_k
+        self.top_k = top_k
+        self.max_length = max_length
         
-        self.llm = ChatMistralAI(api_key=api_key, model=model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        self.model = AutoModelForCausalLM.from_pretrained(model_name)
+
+        pipe = pipeline(
+            "text-generation",
+            model=self.model,
+            tokenizer=self.tokenizer,
+            max_new_tokens=self.max_length,
+            device=0 if self.device == "cuda" else -1,
+        )
+
+        self.llm = HuggingFacePipeline(pipeline=pipe)
+
+        
         self.db = SQLDatabase.from_uri(db_uri)
         self.table_info = self.db.get_table_info()
         
@@ -34,6 +48,59 @@ class RNASeqChatbot:
         self._setup_output_parsers()
         # Initialize prompts
         self._setup_prompts()
+
+        def _setup_huggingface_model(self):
+            """Initialize Hugging Face model and tokenizer"""
+            try:
+                print(f"Loading model: {self.model_name}")
+                
+                # Load tokenizer
+                self.tokenizer = AutoTokenizer.from_pretrained(
+                    self.model_name,
+                    trust_remote_code=True,
+                    padding_side="left"
+                )
+                
+                # Add pad token if it doesn't exist
+                if self.tokenizer.pad_token is None:
+                    self.tokenizer.pad_token = self.tokenizer.eos_token
+                
+                # Load model
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    self.model_name,
+                    torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
+                    device_map="auto" if self.device == "cuda" else None,
+                    trust_remote_code=True,
+                    low_cpu_mem_usage=True
+                )
+                
+                if self.device == "cpu":
+                    self.model = self.model.to(self.device)
+                
+                # Create text generation pipeline
+                self.pipe = pipeline(
+                    "text-generation",
+                    model=self.model,
+                    tokenizer=self.tokenizer,
+                    max_length=self.max_length,
+                    temperature=0.1,
+                    do_sample=True,
+                    top_p=0.9,
+                    repetition_penalty=1.1,
+                    return_full_text=False,
+                    pad_token_id=self.tokenizer.eos_token_id
+                )
+                
+                # Create LangChain wrapper
+                self.llm = HuggingFacePipeline(pipeline=self.pipe)
+                
+                print("Model loaded successfully!")
+                
+            except Exception as e:
+                print(f"Error loading model: {str(e)}")
+                raise
+        
+        self._setup_huggingface_model()
 
     def _setup_output_parsers(self):
             """Initialize structured output parsers for different chain outputs"""
@@ -219,8 +286,39 @@ class RNASeqChatbot:
         else:
             raw_text = str(chain_result)
         
-        return parser.parse(raw_text)
+        try:
+            return parser.parse(raw_text)
+        except Exception as e:
+            print(f"Error parsing structured output: {str(e)}")
+            print(f"Raw text: {raw_text}")
+            # Fallback: try to extract JSON manually
+            return self._fallback_json_extraction(raw_text, parser)
     
+    def _fallback_json_extraction(self, raw_text, parser):
+        """Fallback method to extract JSON from raw text"""
+        import json
+        
+        # Try to find JSON in the text
+        json_pattern = r'\{[^{}]*\}'
+        matches = re.findall(json_pattern, raw_text)
+        
+        for match in matches:
+            try:
+                parsed_json = json.loads(match)
+                # Check if it has the expected keys
+                expected_keys = [schema.name for schema in parser.response_schemas]
+                if any(key in parsed_json for key in expected_keys):
+                    return parsed_json
+            except json.JSONDecodeError:
+                continue
+        
+        # If no valid JSON found, return a default structure
+        if hasattr(parser, 'response_schemas') and parser.response_schemas:
+            key = parser.response_schemas[0].name
+            return {key: raw_text.strip()}
+        
+        return {"error": "Could not parse response"}
+
     def execute_sql(self, sql_query):
         """Execute SQL query and return results as DataFrame"""
         try:
@@ -401,7 +499,7 @@ if __name__ == "__main__":
         raise ValueError("API_KEY and DB_URI environment variables must be set.")
 
     # Initialize chatbot
-    chatbot = RNASeqChatbot(model_name, api_key, db_uri, dialect, top_k)
+    chatbot = RNASeqChatbot(model_name, db_uri, dialect, top_k)
 
     print("RNASeqChatbot initialized. Type your query below:")
     while True:
