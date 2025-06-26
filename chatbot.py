@@ -5,8 +5,8 @@ from dotenv import load_dotenv
 from langchain_community.utilities import SQLDatabase
 from langchain_mistralai import ChatMistralAI
 from langchain.prompts import PromptTemplate
-from langchain.chains import LLMChain, SequentialChain
-from langchain import Chain
+from langchain.chains import LLMChain
+from langchain.output_parsers import StructuredOutputParser, ResponseSchema
 # for llm-generated code execution:
 import pandas as pd
 import plotly.express as px 
@@ -29,16 +29,56 @@ class RNASeqChatbot:
         plot_instructions_path = os.getenv("CONFIG_YAML_PATH", "plotting_instructions.yaml")
         with open(plot_instructions_path, "r") as f:
             self.plot_instructions = yaml.safe_load(f)
+            
+        # Initialize output parsers
+        self._setup_output_parsers()
+        # Initialize prompts
+        self._setup_prompts()
+
+    def _setup_output_parsers(self):
+            """Initialize structured output parsers for different chain outputs"""
+            
+            # SQL query parser
+            sql_response_schemas = [
+                ResponseSchema(name="sql_query", description="The SQL query to execute, without any markdown formatting or explanations")
+            ]
+            self.sql_output_parser = StructuredOutputParser.from_response_schemas(sql_response_schemas)
+            self.format_sql_output_instructions = self.sql_output_parser.get_format_instructions()
+            
+            # Plot type parser
+            plot_type_response_schemas = [
+                ResponseSchema(name="plot_type", description="The recommended plot type: scatter, bar, line, heatmap, box, volcano, or no visualization")
+            ]
+            self.plot_type_output_parser = StructuredOutputParser.from_response_schemas(plot_type_response_schemas)
+            self.format_plot_type_instructions = self.plot_type_output_parser.get_format_instructions()
+            
+            # Python code parser
+            python_code_response_schemas = [
+                ResponseSchema(name="python_code", description="The Python code to generate the plot, without any markdown formatting or explanations")
+            ]
+            self.python_code_output_parser = StructuredOutputParser.from_response_schemas(python_code_response_schemas)
+            self.format_python_code_instructions = self.python_code_output_parser.get_format_instructions()
+            
+            # Response parser
+            response_schemas = [
+                ResponseSchema(name="analysis", description="Technical analysis and findings for the research scientist")
+            ]
+            self.response_output_parser = StructuredOutputParser.from_response_schemas(response_schemas)
+            self.format_response_instructions = self.response_output_parser.get_format_instructions()
+            
+    def _setup_prompts(self):
+        """Initialize prompts for different tasks with output formatting"""
 
         # SQL generation prompt
         self.sql_prompt = PromptTemplate(
             input_variables=["question", "table_info", "dialect", "top_k"],
+            partial_variables={"format_instructions": self.format_sql_output_instructions},
             template=
             """
-            Given an input question on bulk RNA sequencing results from a research 
-            scientist, create a syntactically correct {dialect} query to run to help 
-            find the answer. Return only the SQL query, without any additional text 
-            or explanation.
+            Given an input question on bulk RNA sequencing data, create a syntactically 
+            correct {dialect} query to run to help find the answer. Return only the SQL 
+            query, without any additional text or explanation. Return a JSON object that 
+            adheres to the following schema: {format_instructions}.
             
             Unless the user specifies a specific number of examples they wish to obtain, 
             always limit your query to at most {top_k} results. You can order the results 
@@ -49,11 +89,11 @@ class RNASeqChatbot:
             {table_info}
             
             Never query for all the columns from a specific table, only ask for a the
-            few relevant columns given the question. You may have to join tables to retrieve
-            the relevant information. If a column contains a dot (.) 
-            in the name, wrap the column name in quotations (").
+            few relevant columns given the question. You may have to join tables to
+            retrieve the relevant information. If a column contains a dot (.) in the 
+            name, wrap the column name in quotations (").
             
-            If asked about counts or raw counts, use the table named normalization. If
+            When asked about counts or raw counts, use the table named normalization. If
             asked about columns which are not in the normalization table, try to find 
             them in the table named "metadata" and join it with the normalization table 
             to retrieve the relevant information.
@@ -84,16 +124,17 @@ class RNASeqChatbot:
             """
         )
         
-        
-        # Plotly code generation prompt
+        # Visualization prompt
         self.plot_type_prompt = PromptTemplate(
             input_variables=["question", "sql_query", "data", "columns"],
+            partial_variables={"format_instructions": self.format_plot_type_instructions},
             template=
             """
             You are an AI assistant to research scientists that recommends appropriate 
             data visualizations for bulk RNA-seq data analysis results. Based on the 
             user's question "{question}", SQL query {sql_query}, and query results {data}, 
             understand the most suitable type of graph or chart to visualize the data. 
+            Return a JSON object that adheres to the following schema: {format_instructions}
             
             Available plot types and their use cases:
             1. Scatter: For visualizing relationships between two continuous variables,
@@ -120,12 +161,14 @@ class RNASeqChatbot:
         # Plotly code generation prompt
         self.plotly_prompt = PromptTemplate(
             input_variables=["question", "sql_query", "data", "columns", "plot_instructions", "plot_type"],
+            partial_variables={"format_instructions": self.format_python_code_instructions},
             template=
             """
             You are an AI assistant to research scientists that produces appropriate 
             data visualizations for bulk RNA-seq data analysis results. Based on the 
             user's question "{question}", SQL query {sql_query}, and query results {data}, 
-            produce a {plot_type} plot to visualize the data. 
+            produce a {plot_type} plot to visualize the data. Return a JSON object that 
+            adheres to the following schema: {format_instructions}
             
             Use these detailed instructions for the selected plot type: {plot_instructions}.
             
@@ -147,15 +190,17 @@ class RNASeqChatbot:
     
         # Response generation prompt
         self.response_prompt = PromptTemplate(
-            input_variables=["question", "data"],
+            input_variables=["question", "data", "plot_type"],
+            partial_variables={"format_instructions": self.format_response_instructions},
             template=
             """
             Generate a technical response aimed at a research scientist tailored to this 
             RNA-seq query based on the question asked: {question}, and data you retrieved: 
-            {data}.
+            {data}, and if applicable, the plot you generated.
             The response should be concise, informative, and directly address the user's 
             query. Do not include any code or SQL queries or plots in the response, just 
             the analysis and findings.
+            Return a JSON object that adheres to the following schema: {format_instructions}
             """
         )
         
@@ -167,146 +212,21 @@ class RNASeqChatbot:
         
         #self.parallel_chain = Chain([self.sql_chain, self.plot_type_chain, self.plotly_chain, self.response_chain])
     
-    def _extract_chain_output(self, chain_result, chain_name=""):
-        """
-        Safely extract text content from LangChain output with proper error handling
-        """
-        try:
-            if isinstance(chain_result, dict):
-                return chain_result.get("text", "") or chain_result.get("content", "") or chain_result.get("output", "")
-            elif isinstance(chain_result, str):
-                return chain_result
-            elif hasattr(chain_result, 'content'):
-                content = chain_result.content
-            elif hasattr(chain_result, 'text'):
-                content = chain_result.text
-            else:
-                content = content.strip()
-                if not content:
-                    raise ValueError(f"Chain {chain_name} returned empty content")
-            return content.strip()
-        except Exception as e:
-            raise ValueError(f"Error extracting output from chain {chain_name}: {str(e)}")
-        
-    def _clean_sql_query(self, sql_query):
-        """
-        Sanitize SQL query from LLM output
-        """
-        if not sql_query:
-            raise ValueError("Empty SQL query recieved from LLM")
-        code_block_pattern = r"```(?:sql)?\s*\n?(.*?)\n?```"
-        match = re.search(code_block_pattern, sql_query, flags=re.MULTILINE | re.DOTALL)
-        if match:
-            code = match.group(1).strip()
+    def _extract_structured_output(self, chain_result, parser):
+        """Extract structured output using the appropriate parser"""
+        if isinstance(chain_result, dict):
+            raw_text = chain_result.get('text', str(chain_result))
         else:
-            keywords = ["SELECT", "WITH", "EXPLAIN"]
-            lines = sql_query.strip().splitlines()
-            sql_start_idx = 0
-            sql_start_idx = len(lines)
-            for i, line in enumerate(lines):
-                if any(keyword in line.upper() for keyword in keywords):
-                    sql_start_idx = i
-                    break
-            for i in range(len(lines) - 1, sql_start_idx - 1, -1):
-                line = lines[i].strip()
-                if line and (line.endswith(';') or 
-                            any(keyword in line.upper() for keyword in ['FROM', 'WHERE', 'ORDER', 'GROUP', 'LIMIT', 'JOIN'])):
-                    sql_end_idx = i + 1
-                    break
-            code = '\n'.join(lines[sql_start_idx:sql_end_idx]).strip()
-        if not any(keyword in code.upper() for keyword in ["SELECT", "FROM"]):
-            raise ValueError(f"Invalid SQL query generated: {code}")
-        return code 
-    
-    def _clean_python_code(self, python_code):
-        """
-        Sanitize Python code from LLM output
-        """
-        if not python_code:
-            raise ValueError("Empty Python code received from LLM")
-        code_block_pattern = r"```(?:python)?\s*\n?(.*?)\n?```"
-        match = re.search(code_block_pattern, python_code, flags=re.MULTILINE | re.DOTALL)
-        if match:
-            code = match.group(1).strip()
-        else:
-            lines = python_code.strip().splitlines()
-            # Find the first line that looks like Python code
-            code_start = 0
-            for i, line in enumerate(lines):
-                stripped = line.strip()
-                if (stripped.startswith(('import ', 'from ', 'data[', 'fig =', 'px.')) or 
-                    '=' in stripped or 
-                    stripped.startswith('np.') or
-                    stripped.startswith('pd.')):
-                    code_start = i
-                    break
-            
-            # Find the last line that looks like Python code
-            code_end = len(lines)
-            for i in range(len(lines) - 1, -1, -1):
-                stripped = lines[i].strip()
-                if (stripped and not stripped.startswith('#') and 
-                    ('=' in stripped or stripped.startswith(('fig', 'data', 'px.', 'np.')))):
-                    code_end = i + 1
-                    break
-            code = '\n'.join(lines[code_start:code_end]).strip()
-        return code
+            raw_text = str(chain_result)
         
-    def _validate_plot_type(self, plot_type):
-        """
-        Validate and normalize plot type output
-        """
-        valid_types = ['scatter', 'bar', 'line', 'heatmap', 'box', 'volcano', 'no visualization']
-        
-        # Clean the plot type
-        cleaned_type = plot_type.lower().strip()
-        
-        # Handle variations in naming
-        type_mapping = {
-            'scatterplot': 'scatter',
-            'scatter plot': 'scatter',
-            'barplot': 'bar',
-            'bar chart': 'bar',
-            'bar plot': 'bar',
-            'lineplot': 'line',
-            'line chart': 'line',
-            'line plot': 'line',
-            'heatmap plot': 'heatmap',
-            'heat map': 'heatmap',
-            'boxplot': 'box',
-            'box plot': 'box',
-            'volcano plot': 'volcano',
-            'volcanoplot': 'volcano',
-            'none': 'no visualization',
-            'no plot': 'no visualization',
-            'no chart': 'no visualization'
-        }
-        
-        # Check direct match first
-        if cleaned_type in valid_types:
-            return cleaned_type
-            
-        # Check mapping
-        if cleaned_type in type_mapping:
-            return type_mapping[cleaned_type]
-            
-        # Check if any valid type is contained in the response
-        for valid_type in valid_types:
-            if valid_type in cleaned_type:
-                return valid_type
-                
-        print(f"Warning: Unrecognized plot type '{plot_type}', defaulting to 'no visualization'")
-        return 'no visualization'
-
+        return parser.parse(raw_text)
     
     def execute_sql(self, sql_query):
-        """
-        Sanitize and execute SQL query and return results as DataFrame
-        """
+        """Execute SQL query and return results as DataFrame"""
         try:
-            cleaned_query = self._clean_sql_query(sql_query)
-            print(f"Executing cleaned SQL query: {cleaned_query}")
-            df = pd.read_sql_query(cleaned_query, self.db._engine)
+            #cleaned_query = self._clean_sql_query(sql_query)
+            print(f"Executing cleaned SQL query: {sql_query}")
+            df = pd.read_sql_query(sql_query, self.db._engine)
             if df.empty:
                 print("Query returned no results.")
                 return pd.DataFrame()
@@ -331,8 +251,8 @@ class RNASeqChatbot:
                 "columns": list(data.columns)
             })
             
-            plot_type_raw = self._extract_chain_output(chain_result, "plot_type")
-            plot_type = self._validate_plot_type(plot_type_raw)
+            parsed_result = self._extract_structured_output(chain_result, self.plot_type_output_parser)
+            plot_type = parsed_result["plot_type"]
                 
             print(f"Determined plot type: {plot_type}")
             return plot_type
@@ -346,7 +266,7 @@ class RNASeqChatbot:
         Generate and execute plotly code
         """
         try:
-            if plot_type = "no visualization" or data.empty:
+            if plot_type == "no visualization" or data.empty:
                 print("No visualization requested or no data available.")
                 return None
             
@@ -361,8 +281,11 @@ class RNASeqChatbot:
                 "plot_instructions": plot_instructions
             })
             
-            plotly_code_raw = self._extract_chain_output(chain_result, "plotly")
-            plotly_code = self._clean_python_code(plotly_code_raw)
+            # plotly_code_raw = self._extract_chain_output(chain_result, "plotly")
+            # plotly_code = self._clean_python_code(plotly_code_raw)
+            
+            parsed_result = self._extract_structured_output(chain_result, self.python_code_output_parser)
+            plotly_code = parsed_result["python_code"]
             
             print(f"Generated plotly code: {plotly_code}")
             
@@ -386,13 +309,11 @@ class RNASeqChatbot:
         
         except Exception as e:
             print(f"Error generating/executing plot: {str(e)}")
-            print(f"Problematic plotly code: {plotly_code_raw}")
+            print(f"Problematic plotly code: {plotly_code}")
             return None
 
     def generate_response(self, user_query, data):
-        """
-        Generate natural language response
-        """
+        """Generate natural language response"""
         try:
             if data.empty:
                 return "No data was found matching your query. Please try rephrasing your question or check if the requested information exists in the database."
@@ -406,11 +327,11 @@ class RNASeqChatbot:
                 "data": data_info
             })
             
-            response = self._extract_chain_output(chain_result, "response")
+            # response = self._extract_chain_output(chain_result, "response")
             
-            if not response:
-                return "I was able to retrieve data for your query, but encountered an issue generating the response. Please try rephrasing your question."
-                
+            parsed_result = self._extract_structured_output(chain_result, self.response_output_parser)
+            response = parsed_result["analysis"]
+
             return response
             
         except Exception as e:
@@ -418,9 +339,7 @@ class RNASeqChatbot:
             return "An error occurred while generating the response to your query."
     
     def chat(self, user_query):
-        """
-        Main chat function
-        """
+        """Main chat function"""
         try:
             print(f"\n🧬 User query: {user_query}")
             
@@ -432,13 +351,18 @@ class RNASeqChatbot:
                 "dialect": self.dialect,
                 "top_k": self.top_k
             })
-            sql_query = self._extract_chain_output(sql_chain_result, "SQL generation")
+            # parsed_sql_chain_result = self.parser.parse(sql_chain_result)
+            # sql_query = parsed_sql_chain_result["sql"].strip()
+            
+            parsed_sql_result = self._extract_structured_output(sql_chain_result, self.sql_output_parser)
+            sql_query = parsed_sql_result["sql_query"]
+            
             if not sql_query:
                 return "Failed to generate SQL query. Please try rephrasing your question."
             
             # Step 2: Execute SQL query
             print("\n2. Executing SQL query...")
-            data = self.execute_sql(sql_query.)
+            data = self.execute_sql(sql_query)
             if data.empty:
                 return "No results found for your query. Please try rephrasing your question or check if the requested information exists in the database."
             print(f"Retrieved {len(data)} rows of data")
@@ -446,6 +370,7 @@ class RNASeqChatbot:
             # Step 3: Generate natural language response
             print("\n3. Generating response...")
             response = self.generate_response(user_query, data)
+            print(response)
 
             # Step 4: Check if visualization is needed
             print("\n4. Checking for visualization...")
@@ -455,8 +380,34 @@ class RNASeqChatbot:
                 print(f"\n5. Generating {plot_type} plot...")
                 self.generate_plot(user_query, data, sql_query, plot_type)
             
-            return response
+            return 
         
         except Exception as e:
             print(f"Error in chat function: {str(e)}")
             return "An unexpected error occurred while processing your query. Please try again or rephrase your question."
+
+if __name__ == "__main__":
+    load_dotenv()
+
+    # Load environment variables
+    model_name = os.getenv("MODEL_NAME")
+    api_key = os.getenv("MISTRAL_API_KEY")
+    db_uri = os.getenv("DB_URI")
+    dialect = os.getenv("DIALECT", "sqlite")
+    top_k = int(os.getenv("TOP_K", 10))
+
+    # Validate required environment variables
+    if not api_key or not db_uri:
+        raise ValueError("API_KEY and DB_URI environment variables must be set.")
+
+    # Initialize chatbot
+    chatbot = RNASeqChatbot(model_name, api_key, db_uri, dialect, top_k)
+
+    print("RNASeqChatbot initialized. Type your query below:")
+    while True:
+        user_query = input("\n🧬 Enter your query (or type 'exit' to quit): ")
+        if user_query.lower() == "exit":
+            print("Goodbye!")
+            break
+        response = chatbot.chat(user_query)
+        print(f"\n🧬 Response: {response}")
