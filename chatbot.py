@@ -1,6 +1,9 @@
 import os
 import re
 import yaml
+import time
+import random
+from typing import Optional, Any, Dict
 from dotenv import load_dotenv
 from langchain_community.utilities import SQLDatabase
 from langchain_mistralai import ChatMistralAI
@@ -14,15 +17,27 @@ import plotly.express as px
 import numpy as np 
 
 
+class RNASeqChatbotError(Exception):
+    """Custom exception for chatbot errors"""
+    pass
+
+
+class APICapacityExceededError(RNASeqChatbotError):
+    """Exception for API capacity/rate limit errors"""
+    pass
+
 class RNASeqChatbot:
-    def __init__(self, model_name, api_key, db_uri, dialect, top_k):
+    def __init__(self, model_name, api_key, db_uri, dialect, top_k, max_retries=3, base_delay=1):
         self.model_name = model_name
         self.api_key = api_key
         self.db_uri = db_uri
         self.dialect = dialect
         self.top_k=str(top_k)
         
-        self.llm = ChatMistralAI(api_key=api_key, model=model_name)
+        self.max_retries = max_retries
+        self.base_delay = base_delay
+        
+        self.llm = ChatMistralAI(api_key=api_key, model=model_name, temperature=0.2)
         self.db = SQLDatabase.from_uri(db_uri)
         self.table_info = self.db.get_table_info()
         
@@ -83,7 +98,7 @@ class RNASeqChatbot:
         )
 
         self.plotly_prompt = PromptTemplate(
-            input_variables=["question", "sql_query", "data", "columns", "plot_instructions", "plot_type"],
+            input_variables=["question", "sql_query", "data", "columns", "plot_instructions", "plot_type", 'schema'],
             partial_variables={"format_instructions": self.format_python_code_instructions},
             template=plotly_prompt_template
         )
@@ -98,7 +113,77 @@ class RNASeqChatbot:
         self.plot_type_chain = LLMChain(llm=self.llm, prompt=self.plot_type_prompt)
         self.plotly_chain = LLMChain(llm=self.llm, prompt=self.plotly_prompt)
         self.response_chain = LLMChain(llm=self.llm, prompt=self.response_prompt)
+    
+    def _is_rate_limit_error(self, error_message: str) -> bool:
+        """Check if the error is a rate limit or capacity exceeded error"""
+        rate_limit_indicators = [
+            "429",
+            "rate limit",
+            "capacity exceeded",
+            "service tier capacity exceeded",
+            "too many requests"
+        ]
+        error_lower = str(error_message).lower()
+        return any(indicator in error_lower for indicator in rate_limit_indicators)
+
+    def _exponential_backoff_delay(self, attempt: int) -> float:
+        """Calculate exponential backoff delay (double waiting time after each retry)"""
+        delay = self.base_delay * (2 ** attempt)
+        # Add jitter to avoid thundering herd
+        jitter = random.uniform(0, 0.1 * delay)
+        return delay + jitter
+
+    def _invoke_chain_with_retry(self, chain: LLMChain, inputs: Dict[str, Any], operation_name: str) -> Any:
+        """
+        Invoke a LangChain with retry logic for rate limit errors
         
+        Args:
+            chain: The LangChain to invoke
+            inputs: Input parameters for the chain
+            operation_name: Name of the operation for logging
+            
+        Returns:
+            Chain result
+            
+        Raises:
+            APICapacityExceededError: If max retries exceeded for rate limit errors
+            RNASeqChatbotError: For other persistent errors
+        """
+        last_error = None
+        
+        for attempt in range(self.max_retries + 1):
+            try:
+                print(f"Attempting {operation_name} (attempt {attempt + 1}/{self.max_retries + 1})")
+                result = chain.invoke(inputs)
+                if attempt > 0:
+                    print(f"✅ {operation_name} succeeded after {attempt + 1} attempts")
+                return result
+                
+            except Exception as e:
+                last_error = e
+                error_message = str(e)
+                
+                if self._is_rate_limit_error(error_message):
+                    if attempt < self.max_retries:
+                        delay = self._exponential_backoff_delay(attempt)
+                        print(f"⚠️  Rate limit/capacity error in {operation_name}. Retrying in {delay:.2f} seconds...")
+                        print(f"Error: {error_message}")
+                        time.sleep(delay)
+                        continue
+                    else:
+                        print(f"❌ Max retries exceeded for {operation_name} due to rate limiting")
+                        raise APICapacityExceededError(
+                            f"API capacity exceeded after {self.max_retries + 1} attempts for {operation_name}. "
+                            f"Last error: {error_message}"
+                        )
+                else:
+                    # Non-rate-limit error, don't retry
+                    print(f"❌ Non-retryable error in {operation_name}: {error_message}")
+                    raise RNASeqChatbotError(f"Error in {operation_name}: {error_message}")
+        
+        # This should never be reached, but just in case
+        raise RNASeqChatbotError(f"Unexpected error in {operation_name}: {last_error}")
+    
     def _extract_structured_output(self, chain_result, parser):
         """Extract structured output using the appropriate parser"""
         if isinstance(chain_result, dict):
@@ -111,7 +196,6 @@ class RNASeqChatbot:
     def execute_sql(self, sql_query):
         """Execute SQL query and return results as DataFrame"""
         try:
-            #cleaned_query = self._clean_sql_query(sql_query)
             print(f"Executing cleaned SQL query: {sql_query}")
             df = pd.read_sql_query(sql_query, self.db._engine)
             if df.empty:
@@ -122,7 +206,7 @@ class RNASeqChatbot:
         except Exception as e:
             print(f"Error executing SQL query: {str(e)}")
             print(f"Problematic query: {sql_query}")
-            return pd.DataFrame()
+            return RNASeqChatbotError(f"SQL execution error: {str(e)}")
     
     def determine_plot_type(self, user_query, sql_query, data):
         """Determine what plot to generate, if any"""
@@ -131,12 +215,16 @@ class RNASeqChatbot:
                 print("No data available for plotting.")
                 return "no visualization"
         
-            chain_result = self.plot_type_chain.invoke({
-                "question": user_query,
-                "sql_query": sql_query,
-                "data": data.head().to_string(),
-                "columns": list(data.columns)
-            })
+            chain_result = self._invoke_chain_with_retry(
+                self.plot_type_chain,
+                {
+                    "question": user_query,
+                    "sql_query": sql_query,
+                    "data": data.head().to_string(),
+                    "columns": list(data.columns)
+                },
+            "plot type determination"
+            )
             
             parsed_result = self._extract_structured_output(chain_result, self.plot_type_output_parser)
             plot_type = parsed_result["plot_type"]
@@ -144,6 +232,8 @@ class RNASeqChatbot:
             print(f"Determined plot type: {plot_type}")
             return plot_type
         
+        except (APICapacityExceededError, RNASeqChatbotError):
+            raise
         except Exception as e:
             print(f"Error determining plot type: {str(e)}")
             return "no visualization"
@@ -152,51 +242,61 @@ class RNASeqChatbot:
         """
         Generate and execute plotly code
         """
+        plotly_code = None
         try:
             if plot_type == "no visualization" or data.empty:
                 print("No visualization requested or no data available.")
                 return None
             
+            # Get structured output
+            data_as_dict = data.to_dict(orient='list')
+            schema_info = {col: str(dtype) for col, dtype in data.dtypes.items()}
             plot_instructions = self.plot_instructions.get(plot_type, {})
 
-            chain_result = self.plotly_chain.invoke({
-                "question": user_query,
-                "data": data.head().to_string(),
-                "sql_query": sql_query,
-                "columns": list(data.columns),
-                "plot_type": plot_type,
-                "plot_instructions": plot_instructions
-            })
-            
-            # plotly_code_raw = self._extract_chain_output(chain_result, "plotly")
-            # plotly_code = self._clean_python_code(plotly_code_raw)
-            
+            chain_result = self._invoke_chain_with_retry(
+                self.plotly_chain,
+                {
+                    "question": user_query,
+                    "data": data_as_dict,
+                    "sql_query": sql_query,
+                    "columns": list(data.columns),
+                    "schema": schema_info,
+                    "plot_type": plot_type,
+                    "plot_instructions": plot_instructions
+                },
+                "plot code generation"
+            )
+
             parsed_result = self._extract_structured_output(chain_result, self.python_code_output_parser)
             plotly_code = parsed_result["python_code"]
             
             print(f"Generated plotly code: {plotly_code}")
             
             exec_globals = {"px": px, "np": np, "data": data, "pd": pd}
-            
             exec(plotly_code, exec_globals)
             
             if "fig" in exec_globals:
-                fig = exec_globals["fig"]
-                fig.show()
-                
-                save = input("Save plot? (y/n): ")
-                if save.lower() == 'y':
-                    filename = input("Enter filename (without extension): ")
-                    fig.write_html(f"{filename}.html")
-                    print(f"Plot saved as {filename}.html")
-                return fig
+                return exec_globals["fig"]
+                # Uncomment the following lines if you want to use via CLI
+                # fig = exec_globals["fig"]
+                # save = input("Save plot? (y/n): ")
+                # if save.lower() == 'y':
+                #     filename = input("Enter filename (without extension): ")
+                #     fig.write_html(f"{filename}.html")
+                #     print(f"Plot saved as {filename}.html")
+                # return fig
             else:
                 print("No figure object created in the plotly code.")
                 return None
         
+        except (APICapacityExceededError, RNASeqChatbotError):
+            raise
         except Exception as e:
             print(f"Error generating/executing plot: {str(e)}")
-            print(f"Problematic plotly code: {plotly_code}")
+            if plotly_code is not None:
+                print(f"Problematic plotly code: {plotly_code}")
+            else:
+                print("Error occurred before plotly code generation.")
             return None
 
     def generate_response(self, user_query, data):
@@ -209,10 +309,14 @@ class RNASeqChatbot:
             data_summary = data.head(10).to_string(index=False) if len(data) > 10 else data.to_string(index=False)
             data_info = f"Data shape: {data.shape}, Columns: {list(data.columns)}\n\nSample data:\n{data_summary}"
             
-            chain_result = self.response_chain.invoke({
-                "question": user_query,
-                "data": data_info
-            })
+            chain_result = self._invoke_chain_with_retry(
+                self.response_chain,
+                {
+                    "question": user_query,
+                    "data": data_info
+                },
+                "response generation"
+            )
             
             # response = self._extract_chain_output(chain_result, "response")
             
@@ -221,6 +325,8 @@ class RNASeqChatbot:
 
             return response
             
+        except (APICapacityExceededError, RNASeqChatbotError):
+            raise
         except Exception as e:
             print(f"Error generating response: {e}")
             return "An error occurred while generating the response to your query."
@@ -232,14 +338,16 @@ class RNASeqChatbot:
             
             # Step 1: Generate SQL query
             print("\n1. Generating SQL query...")
-            sql_chain_result = self.sql_chain.invoke({
-                "question": user_query,
-                "table_info": self.table_info,
-                "dialect": self.dialect,
-                "top_k": self.top_k
-            })
-            # parsed_sql_chain_result = self.parser.parse(sql_chain_result)
-            # sql_query = parsed_sql_chain_result["sql"].strip()
+            sql_chain_result = self._invoke_chain_with_retry(
+                self.sql_chain,
+                {
+                    "question": user_query,
+                    "table_info": self.table_info,
+                    "dialect": self.dialect,
+                    "top_k": self.top_k
+                },
+                "SQL query generation"
+            )
             
             parsed_sql_result = self._extract_structured_output(sql_chain_result, self.sql_output_parser)
             sql_query = parsed_sql_result["sql_query"]
@@ -257,7 +365,7 @@ class RNASeqChatbot:
             # Step 3: Generate natural language response
             print("\n3. Generating response...")
             response = self.generate_response(user_query, data)
-            print(response)
+            #print(response)
 
             # Step 4: Check if visualization is needed
             print("\n4. Checking for visualization...")
@@ -269,10 +377,26 @@ class RNASeqChatbot:
             
             return response
         
+        except APICapacityExceededError as e:
+            error_message = (
+                "The Mistral API service capacity has been exceeded. "
+                "This usually means the service is under heavy load. "
+                "Please try again in a few minutes."
+            )
+            print(f"❌ API Capacity Error: {str(e)}")
+            return error_message
+            
+        except RNASeqChatbotError as e:
+            error_message = f"An error occurred while processing your query: {str(e)}"
+            print(f"❌ Chatbot Error: {str(e)}")
+            return error_message
+            
         except Exception as e:
-            print(f"Error in chat function: {str(e)}")
-            return "An unexpected error occurred while processing your query. Please try again or rephrase your question."
-
+            error_message = "An unexpected error occurred while processing your query. Please try again or rephrase your question."
+            print(f"❌ Unexpected Error: {str(e)}")
+            return error_message
+        
+        
 if __name__ == "__main__":
     load_dotenv()
 
