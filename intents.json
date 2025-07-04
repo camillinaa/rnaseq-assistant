@@ -1,0 +1,71 @@
+{
+    "count_matrix": [
+      "Which gene has the highest counts in condition X?",
+      "What are the counts of gene X in treatment Y?",
+      "What are the counts of gene ABC in control samples?",
+      "Can you show me the counts of TP53 in treated samples?",
+      "Give me the raw counts for gene X across all samples.",
+      "Does gene Y have high counts in the knockout group?",
+      "Compare the counts of gene Z between conditions A and B.",
+      "What is the raw count for gene MYC in sample S1?",
+      "Which genes have highest mean counts in the dataset?",
+      "What genes have lowest median counts?"
+    ],
+    "deseq2": [
+      "Give me the 5 most significant genes",
+      "Show me the list of differentially expressed genes between condition X and Y.",
+      "What are the DEGs between treatment and control?",
+      "Which genes are significantly upregulated in treated samples?",
+      "Give me a list of downregulated genes in cancer vs normal.",
+      "What genes have the lowest LFC?",
+      "What is the padj value of gene ABC?",
+      "List DEGs with adjusted p-value < 0.05.",
+      "Are there any differentially expressed genes between these two conditions?",
+      "Can you show the DE results comparing knockout and wild-type?",
+      "What are the log2 fold changes for significant genes?",
+      "What are the top DEGs ranked by fold change?",
+      "List all genes with FDR < 0.01 and log2FC > 1."
+    ],
+    "meta": [
+      "How many replicates are there for each condition?",
+      "What's the sample size per condition?",
+      "How many samples were sequenced per group?",
+      "Can you summarize the experimental design?",
+      "List all samples with their conditions.",
+      "What conditions are included in the experiment?",
+      "Give me the number of replicates in control and treatment.",
+      "Show metadata table for all samples.",
+      "How many biological replicates do we have?",
+      "Summarize the metadata."
+    ],
+    "pca": [
+      "Show me a PCA plot of all samples.",
+      "Plot PCA colored by condition.",
+      "PCA of treated vs control.",
+      "Can you run a PCA analysis?",
+      "Show principal component analysis of samples.",
+      "Generate a PCA plot based on expression data.",
+      "Is there a PCA plot showing sample clustering?",
+      "Give me a PCA where samples are grouped by condition.",
+      "Plot PC1 vs PC2 for all samples.",
+      "Plot PC1 vs PC2 for all samples.",
+      "Display PCA with condition labels.",
+      "Can you show PCA with samples colored by treatment?",
+      "Plot PC12 vs PC13 colored by patient?",
+      "What does the PCA plot look like for this dataset?",
+      "Can you run PCA on the count matrix?"
+    ],
+    "enrichr": [
+      "What pathways are enriched in the cancer condition?",
+      "What pathways are enriched in knockouts?",
+      "Is carbohydrate metabolism enriched in the control condition?",
+      "Are immune functions upregulated in the treated samples?",
+      "Which GO terms are enriched in DEGs?",
+      "Can you list KEGG pathways enriched in upregulated genes?",
+      "Are there any pathways related to metabolism enriched in condition X?",
+      "What are the top enriched terms for differentially expressed genes?",
+      "Run pathway enrichment on DEGs from treated vs control.",
+      "Are immune response pathways overrepresented in cancer samples?"
+    ]
+  }
+  

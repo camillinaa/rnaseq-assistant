@@ -9,7 +9,15 @@ sql_prompt_template = """
     Pay attention to use only the column names that you can see in the schema
     description. Be careful to not query table or columns that do not exist. 
     Also, pay attention to which column is in which table, and pay attention
-    to cases. When asked about specific samples, use also the table named metadata.
+    to cases. 
+    
+    When asked about differential expression - deseq2, gsea, or ora, the sample 
+    subset and comparison specified in the question are found in the table name. 
+    The name is structured as follows: dea, sample subset, comparison, analysis 
+    type, gene set. If no sample subset is specified, use the table containing 
+    all_samples.
+    
+    When asked about specific samples, use also the table named metadata.
     
     When asked about counts use the table named normalization.
     
@@ -22,6 +30,7 @@ sql_prompt_template = """
     few relevant columns given the question. You may have to join tables to
     retrieve the relevant information. If a column contains a dot (.) in the 
     name, wrap the column name in quotations (").
+    
     When responding to questions about statistical significance, do not refer 
     to the raw pvalue column. Instead, use the adjusted p-value, which accounts 
     for multiple testing correction. The adjusted p-value column may be named 

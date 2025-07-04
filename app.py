@@ -1,4 +1,5 @@
 import streamlit as st
+from PIL import Image
 from chatbot import RNASeqChatbot
 from dotenv import load_dotenv
 import os
@@ -17,12 +18,15 @@ def load_chatbot():
 
 chatbot = load_chatbot()
 
-st.title("🧬 OMICS-query 🧬")
+image_url = "https://humantechnopole.it/wp-content/uploads/2020/10/01_HTlogo_pantone_colore.png"
+st.image(image_url, output_format="PNG", width=200)
+st.title("RNA-seq Data Analysis Chatbot")
 st.markdown("Ask any question about your RNA-seq data.")
 
 user_query = st.text_input("Enter your question:")
+submitted = st.button("Submit")
 
-if user_query:
+if submitted and user_query:
     with st.spinner("Processing your query..."):
         try:
             # Step 1: SQL query
